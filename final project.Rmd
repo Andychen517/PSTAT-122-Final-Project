@@ -1,0 +1,190 @@
+---
+title: "PSTAT 122 Final project"
+author: "Andy Chen"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, Cache = TRUE}
+library(dplyr)
+source("C:/Users/yican/Downloads/power_factorial_23.R")
+library(ggplot2)
+sample_df <- read.csv("final_project_r.csv", stringsAsFactors = TRUE)
+
+sample_df <- sample_df %>%
+  mutate(nose = factor(nose, levels = c("no", "yes")),
+         middle = factor(middle, levels = c("no", "yes")),
+         rear = factor(rear, levels = c("no", "yes")))
+
+model <- lm(distance ~ nose * middle * rear, data = sample_df)
+coeff_table <- summary(model)$coefficients[-1, ]
+
+# Sample size calcuation
+beta_mean <- coef(model)
+beta_mean
+coef <- summary(model)$coefficients[, "Std. Error"]
+coef
+beta_se <- rep(mean(summary(model)$coefficients[, "Std. Error"]),8)
+beta_se
+coeff_table
+set.seed(123)
+replicates = 2:10
+power1 <- NA
+for(i in 1:length(replicates)){
+  power1[i] <- power_factorial_23(beta_mean, beta_se, replicates[i])
+}
+power1
+
+beta_se <- rep(40.99238,8)
+power2 <- NA
+for(i in 1:length(replicates)){
+  power2[i] <- power_factorial_23(beta_mean, beta_se, replicates[i])
+}
+
+beta_se <- rep(28.98599, 8)
+power3 <- NA
+for(i in 1:length(replicates)){
+  power3[i] <- power_factorial_23(beta_mean, beta_se, replicates[i])
+}
+
+all_power <- data.frame(
+  power = c(power1, power2, power3),
+  beta_se = c(rep("36.05041", length(power1)),
+              rep("40.99238", length(power2)),
+              rep("28.98599", length(power3))),
+  replicates = rep(replicates, 3)
+)
+
+ggplot(data = all_power, mapping = aes(x=replicates, y = power, group = beta_se, color=beta_se)) +geom_point() + geom_line()
+```
+
+```{r}
+## Full data
+df <- read.csv("final_project_adjusted_r.csv", stringsAsFactors = TRUE)
+
+df <- df %>%
+  mutate(nose = factor(nose, levels = c("no", "yes")),
+         middle = factor(middle, levels = c("no", "yes")),
+         rear = factor(rear, levels = c("no", "yes")))
+```
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+# Interaction plot
+ggplot(df, aes(x = nose, y = distance, color = middle)) +
+  geom_jitter(width = 0.1, height = 0) +
+  facet_grid(cols = vars(rear),
+             labeller = labeller(rear = c("no" = "Rear Clip = No",
+                                          "yes" = "Rear Clip = Yes"))) +  
+  labs(title = "Flight Distance Deviation Based on Three Factors",
+       x = "Nose Clip", y = "Flight Distance (inches)", color = "Middle Clip") +
+  theme_minimal()
+
+# Facet Grid
+ggplot(df, aes(x = nose, y = distance)) +
+  geom_point() +
+  facet_grid(middle ~ rear, 
+             labeller = labeller(middle = c("no" = "Middle Clip = No",
+                                            "yes" = "Middle Clip = Yes"),
+                                 rear = c("no" = "Rear Clip = No",
+                                          "yes" = "Rear Clip = Yes"))) +
+  labs(title = "Flight Distance by Nose, Middle, and Rear Clip Positions",
+       x = "Nose Clip", y = "Flight Distance (inches)") +
+  scale_x_discrete(labels = c("no" = "Nose Clip = No", "yes" = "Nose Clip = Yes")) +
+  theme_minimal()
+```
+
+```{r}
+# Residuals test
+#QQ plot
+qqnorm(resid(model))
+qqline(resid(model), col = "red")
+
+df$residuals <- resid(model)
+df$fitted_values <- fitted(model)
+
+# Residuals vs. Fitted Value Plot
+ggplot(df, aes(x = fitted_values, y = residuals)) +
+  geom_point(alpha = 0.7, color = "blue") +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs. Fitted Values",
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal()
+
+# Shapiro-Wilk test
+shapiro_test <- shapiro.test(df$residuals)
+shapiro_test
+```
+
+```{r}
+# Permutation test
+set.seed(123)
+perm_f <- NA
+reps <- 100000
+
+for(i in 1:reps){
+  perm_data <- df
+  perm_data$distance <- sample(perm_data$distance)  
+
+  perm_model <- lm(distance ~ nose * middle * rear, data = perm_data)
+  perm_f[i] <- summary(perm_model)$fstatistic[1]
+}
+
+# Permutation p-value
+model <- lm(distance ~ nose * middle * rear, data = df)
+F <- summary(model)$fstatistic[1]
+perm_p_value <- sum(perm_f >= F) / reps
+perm_p_value
+
+summary(model)
+
+```
+```{r}
+summary_model <- summary(model)
+
+coeff_table <- as.data.frame(summary_model$coefficients)
+
+library(knitr)
+coeff_table <- cbind(Variable = rownames(coeff_table), coeff_table)
+rownames(coeff_table) <- NULL
+  
+coeff_table$`Pr(>|t|)` <- ifelse(coeff_table$`Pr(>|t|)` < 0.001, 
+                                 formatC(coeff_table$`Pr(>|t|)`, format = "e", digits = 2), 
+                                 round(coeff_table$`Pr(>|t|)`, 4))
+
+kable(coeff_table, digits = 4, caption = "Result of linear regression model of paper airplane")
+```
+
+
+```{r}
+p_value <- pf(summary_model$fstatistic[1], 
+              summary_model$fstatistic[2], 
+              summary_model$fstatistic[3], 
+              lower.tail = FALSE)
+
+formatted_p_value <- ifelse(p_value < 0.001, formatC(p_value, format = "e", digits = 2), round(p_value, 4))
+
+overall_stats <- data.frame(
+  `Statistic` = c("Multiple R-squared", "Adjusted R-squared", "Overall p-value"),
+  `Value` = c(round(summary_model$r.squared, 4), 
+              round(summary_model$adj.r.squared, 4), 
+              formatted_p_value)
+)
+
+
+kable(overall_stats, digits = 4, caption = "Overall result for the paper airplane data")
+```
+```{r}
+no_interaction_model <- lm(distance ~ nose + middle + rear, data = df)
+anova_results <- anova(no_interaction_model, model)
+
+kable(anova_results,digits = 5, caption = "ANOVA result for the interaction coefficients")
+```
